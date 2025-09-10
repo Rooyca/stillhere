@@ -1,0 +1,38 @@
+name: stillhere-dms — Check-in
+on:
+  repository_dispatch:
+    types: [checkin]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # required to push changes to the repo
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Update last check-in (only on repository_dispatch)
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          set -euo pipefail
+          today=$(date -u +"%Y-%m-%d")
+          current=$(cat last_checkin.txt 2>/dev/null || echo "")
+
+          if [ "$today" = "$current" ]; then
+            echo "Already checked in today ($today), skipping."
+            exit 0
+          fi
+
+          echo "$today" > last_checkin.txt
+          git config user.name "stillhere-bot"
+          git config user.email "dmsbot@stillhere.local"
+          git add last_checkin.txt
+          git commit -m "Webhook check-in $today" || echo "No changes to commit"
+          git push
+          echo "Check-in committed."

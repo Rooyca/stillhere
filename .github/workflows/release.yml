@@ -1,0 +1,46 @@
+name: Build & Release Check-in Binary
+
+on:
+  push:
+    tags:
+      - "v*"   # Runs only when you push a tag
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   
+
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Build binary
+        working-directory: ./cmd/checkin
+        run: |
+          mkdir -p ../../dist
+          BIN_NAME="checkin-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BIN_NAME="${BIN_NAME}.exe"
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -o ../../dist/$BIN_NAME .
+
+      - name: Upload binaries to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
