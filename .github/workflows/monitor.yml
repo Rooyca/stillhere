@@ -1,0 +1,80 @@
+name: stillhere — Monitor
+on:
+  schedule:
+    - cron: "0 23 * * *"    # runs daily at 23:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Read last check-in
+        id: checkin
+        run: |
+          set -euo pipefail
+          last=$(cat last_checkin.txt 2>/dev/null || echo "1970-01-01")
+          today=$(date -u +"%Y-%m-%d")
+          echo "last=$last" >> "$GITHUB_OUTPUT"
+          echo "today=$today" >> "$GITHUB_OUTPUT"
+
+      - name: Compare dates
+        id: compare
+        run: |
+          set -euo pipefail
+          last="${{ steps.checkin.outputs.last }}"
+          today="${{ steps.checkin.outputs.today }}"
+          last_date=$(date -d "$last" +%s)
+          today_date=$(date -d "$today" +%s)
+          diff=$(( (today_date - last_date) / 86400 ))
+          echo "diff=$diff" >> "$GITHUB_OUTPUT"
+
+      - name: Reminder email
+        if: ${{ steps.compare.outputs.diff >= vars.REMINDER_DAY && steps.compare.outputs.diff < vars.RELEASE_DAY }}
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: "Reminder: stillhere-dms — check-in needed"
+          to: ${{ vars.USER_EMAIL }}
+          from: "stillhere-dms <dms@stillhere.com>"
+          body: |
+            You haven't checked in for ${{ steps.compare.outputs.diff }} days.
+            Please check in before day ${{ vars.RELEASE_DAY }}, or the payload will be released.
+
+      - name: Payload email (release)
+        if: ${{ steps.compare.outputs.diff >= vars.RELEASE_DAY }}
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: "stillhere-dms — Triggered"
+          to: ${{ vars.RECIPIENT_EMAIL }}
+          from: "stillhere-dms <dms@stillhere.com>"
+          body: |
+            The switch has been triggered.
+
+            Last check-in: ${{ steps.checkin.outputs.last }}
+
+            To unlock the file:
+            1. Download the encrypted file: ${{ secrets.PAYLOAD_URL }}
+            2. Run (replace <FILENAME> with your downloaded file):
+
+               openssl aes-256-cbc -d -pbkdf2 -in <FILENAME> -out secret.txt \
+                 -pass pass:${{ secrets.DECRYPTION_KEY }}
+
+            🔑 Decryption key (part): ${{ secrets.DECRYPTION_KEY }}
+
+          # attachments: ${{ vars.FILE_NAME }}
